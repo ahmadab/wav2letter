@@ -157,3 +157,16 @@ target_link_libraries(
   Decoder
   wav2letter++
   )
+
+  # ----------------------------- ModelSummary -----------------------------
+add_executable(
+  ModelSummary
+  ModelSummary.cpp
+)
+
+target_link_libraries(
+  ModelSummary
+  wav2letter++
+  )
+
+  
