@@ -30,6 +30,7 @@ std::string print_summary(std::shared_ptr<fl::Sequential> model, af::array &inpu
 	  	output = model->module(i)->forward(output);
 	    ss << "\n\t(" << i << "): input dims: " << input_dims << ", output dims: " << output.front().dims() << ", " << model->module(i)->prettyString();
 	  }
+	  ss << "\n]\n";
 	  return ss.str();
 }
 
@@ -47,20 +48,20 @@ int main(int argc, char** argv) {
 
   /* ===================== Parse Options ===================== */
   std::string archfile = argv[1];
+  int length = std::stoi(argv[2]);
   if (argc <= 1) {
 	LOG(FATAL) << gflags::ProgramUsage();
   }
 
   af::info();
 
-  int nchannel = 4;
+  int nchannel = 1;
 	int nclass = 40;
-	int batchsize = 2;
-	int inputsteps = 100;
+	int batchsize = 8;
 
 	auto model = createW2lSeqModule(archfile, nchannel, nclass);
 
-  auto input = af::randn(inputsteps, 1, nchannel, batchsize, f32);
+  auto input = af::randn(length, 1, nchannel, batchsize, f32);
 	//auto prettystr = model->prettyString();
   auto prettystr = print_summary(model, input);
   std::cout << prettystr;

@@ -103,6 +103,7 @@ DECLARE_double(adambeta1);
 DECLARE_double(adambeta2);
 DECLARE_double(optimrho);
 DECLARE_double(optimepsilon);
+DECLARE_bool(cyclic_lr);
 
 /* ========== LR-SCHEDULER OPTIONS ========== */
 

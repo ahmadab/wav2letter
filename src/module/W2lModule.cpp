@@ -9,6 +9,8 @@
 #include "W2lModule.h"
 #include "module/Residual.h"
 #include "module/TDSBlock.h"
+#include "module/Resnet.h"
+#include "module/Extended.h"
 
 #include <string>
 
@@ -310,6 +312,26 @@ std::shared_ptr<Module> parseLines(
     } else {
       return residualBlock(params, numLinesParsed);
     }
+  }
+
+  /* ========== Voicea blocks ========== */
+  if (params[0] == "ResnetSelu1D") {
+    LOG_IF(FATAL, params.size() != 3) << "Failed parsing - " << line;
+    int size = std::stoi(params[1]);
+    int inplanes = std::stoi(params[2]);
+
+    return std::make_shared<w2l::ResnetSelu1D>(size, inplanes);
+  }
+
+  if (params[0] == "RNNOutput") {
+    LOG_IF(FATAL, params.size() != 2) << "Failed parsing - " << line;
+    int idx = std::stoi(params[1]);
+
+    return std::make_shared<w2l::RNNOutput>(idx);
+  }
+
+  if (params[0] == "SELU") {
+    return std::make_shared<SELU>();
   }
 
   /* ========== Trainable frontend ========== */

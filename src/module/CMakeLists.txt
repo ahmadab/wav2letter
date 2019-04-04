@@ -11,6 +11,8 @@ target_sources(
   ${CMAKE_CURRENT_SOURCE_DIR}/Residual.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/TDSBlock.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/W2lModule.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/Extended.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/Resnet.cpp
   )
 
 target_link_libraries(

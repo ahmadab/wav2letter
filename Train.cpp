@@ -28,6 +28,19 @@
 
 using namespace w2l;
 
+double get_cl_lr(int epoch, int step, int cycle_len, int step_per_epoch, double max_lr, double min_lr) {
+    epoch = epoch % cycle_len;
+    double lr_delta = (max_lr - min_lr) / (step_per_epoch * cycle_len / 2 - 1);
+    if (epoch < cycle_len / 2) {
+        // grouth
+        return min_lr + (epoch * step_per_epoch + step) * lr_delta;
+    } else {
+        // decay
+        epoch = epoch - cycle_len / 2;
+        return max_lr - (epoch * step_per_epoch + step) * lr_delta;
+    }
+}
+
 int main(int argc, char** argv) {
   google::InitGoogleLogging(argv[0]);
   google::InstallFailureSignalHandler();
@@ -480,9 +493,11 @@ int main(int argc, char** argv) {
     int64_t curEpoch = startEpoch;
     int64_t sampleIdx = 0;
     while (curEpoch < nepochs) {
-      double lrScale = std::pow(FLAGS_gamma, curEpoch / FLAGS_stepsize);
-      netopt->setLr(lrScale * initlr);
-      critopt->setLr(lrScale * initcritlr);
+			double lrScale = std::pow(FLAGS_gamma, curEpoch / FLAGS_stepsize);
+			critopt->setLr(lrScale * initcritlr);
+    	if (!FLAGS_cyclic_lr) {
+				netopt->setLr(lrScale * initlr);
+    	}
 
       ++curEpoch;
       ntwrk->train();
@@ -500,6 +515,14 @@ int main(int argc, char** argv) {
       meters.timer.resume();
       LOG_MASTER(INFO) << "Epoch " << curEpoch << " started!";
       for (auto& sample : *trainset) {
+      	if (FLAGS_cyclic_lr) {
+      		int cycle_len = 4;
+  				int steps_per_epoch = trainset->size();
+  				double min_lr = initlr * 0.1;
+      		double lr = get_cl_lr(curEpoch - 1, sampleIdx, cycle_len, steps_per_epoch, initlr, min_lr);
+      		netopt->setLr(lr);
+      	}
+
         // meters
         ++sampleIdx;
         af::sync();
