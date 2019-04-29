@@ -201,7 +201,7 @@ def normalize_text(text):
     text = normalize_unicode(text)
     text = remove_extra_spaces(text)
     text = text.replace(APOSTROPHE_TOKEN, "'")
-    text = normalize_word_by_word(text)
+    #text = normalize_word_by_word(text)
     return(text)
 
 def normalize_text_eval(text):

@@ -403,6 +403,20 @@ int main(int argc, char** argv) {
     mtrs.loss.reset();
 
     for (auto& sample : *testds) {
+			auto output = ntwrk->forward({fl::input(sample[kInputIdx])}).front();
+			auto loss =
+					crit->forward({output, fl::Variable(sample[kTargetIdx], false)})
+							.front();
+			auto batchLoss = afToVector<float>(loss.array());
+			for (const auto lossval : batchLoss) {
+				mtrs.loss.add(lossval);
+			}
+//      mtrs.loss.add(loss.array());
+			evalOutput(output.array(), sample[kTargetIdx], mtrs.edit);
+		}
+
+    /*
+    for (auto& sample : *testds) {
       auto output = ntwrk->forward({fl::input(sample[kInputIdx])}).front();
       auto loss =
           crit->forward({output, fl::Variable(sample[kTargetIdx], false)})
@@ -410,6 +424,7 @@ int main(int argc, char** argv) {
       mtrs.loss.add(loss.array());
       evalOutput(output.array(), sample[kTargetIdx], mtrs.edit);
     }
+    */
   };
 
   double gradNorm = 1.0 / (FLAGS_batchsize * worldSize);
@@ -537,7 +552,11 @@ int main(int argc, char** argv) {
           LOG(FATAL) << "Loss has NaN values. Samples - "
                      << join(",", afToVector<std::string>(sample[kSampleIdx]));
         }
-        meters.train.loss.add(loss.array());
+        //meters.train.loss.add(loss.array());
+        auto batchLoss = afToVector<float>(loss.array());
+				for (const auto lossval : batchLoss) {
+					meters.train.loss.add(lossval);
+				}
 
         int64_t batchIdx = (sampleIdx - 1) % trainset->size();
         int64_t globalBatchIdx = trainset->getGlobalBatchIdx(batchIdx);
