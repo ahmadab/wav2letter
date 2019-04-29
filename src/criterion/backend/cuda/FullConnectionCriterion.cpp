@@ -23,8 +23,8 @@ static void backward(
   assert(inputs.size() == 2);
   const auto& gscale = scale * grad_output.array(); // [B]
   const auto& trans = inputs[1].array(); // [N, N]
-  array transtmp(N, N, B, f64);
-  array fccgacc(N, B, T, f64);
+  array transtmp = constant(0, N, N, B, f64);
+  array fccgacc = constant(0, N, B, T, f64);
   auto gtrans = constant(0, N, N, B, f64);
 
   const auto& final_em = fccacc(span, span, T - 1); // [N, B]
@@ -118,9 +118,6 @@ fl::Variable FullConnectionCriterion::forward(
       final_max + log(sum(exp(final_em - tile(final_max, N)), 0)); // [1, B]
 
   const auto& fcc = moddims(final_lse, B) * scale;
-  if (anyTrue<bool>(isNaN(fcc))) {
-    throw std::runtime_error("Loss is NaN value");
-  }
 
   auto grad_func = [B, N, T, fccacc, scale](
                        std::vector<fl::Variable>& inputs,

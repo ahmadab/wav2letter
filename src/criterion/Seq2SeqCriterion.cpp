@@ -30,6 +30,20 @@ Seq2SeqCriterion buildSeq2Seq(int numClasses, int eosIdx) {
     attention = std::make_shared<ContentAttention>(true);
   } else if (FLAGS_attention == w2l::kNeuralContentAttention) {
     attention = std::make_shared<NeuralContentAttention>(FLAGS_encoderdim);
+  } else if (FLAGS_attention == w2l::kSimpleLocationAttention) {
+    useSequentialDecoder = true;
+    attention = std::make_shared<SimpleLocationAttention>(FLAGS_attnconvkernel);
+  } else if (FLAGS_attention == w2l::kLocationAttention) {
+    useSequentialDecoder = true;
+    attention = std::make_shared<LocationAttention>(
+        FLAGS_encoderdim, FLAGS_attnconvkernel);
+  } else if (FLAGS_attention == w2l::kNeuralLocationAttention) {
+    useSequentialDecoder = true;
+    attention = std::make_shared<NeuralLocationAttention>(
+        FLAGS_encoderdim,
+        FLAGS_attndim,
+        FLAGS_attnconvchannel,
+        FLAGS_attnconvkernel);
   } else {
     LOG(FATAL) << "unimplemented attention";
   }
@@ -49,6 +63,8 @@ Seq2SeqCriterion buildSeq2Seq(int numClasses, int eosIdx) {
   } else if (FLAGS_attnWindow == w2l::kSoftWindow) {
     window = std::make_shared<SoftWindow>(
         FLAGS_softwstd, FLAGS_softwrate, FLAGS_softwoffset);
+  } else if (FLAGS_attnWindow == w2l::kSoftPretrainWindow) {
+    window = std::make_shared<SoftPretrainWindow>(FLAGS_softwstd);
   } else {
     LOG(FATAL) << "unimplemented window";
   }
@@ -178,7 +194,7 @@ std::pair<Variable, Variable> Seq2SeqCriterion::vectorizedDecoder(
       windowWeight);
 
   // [nClass, targetlen, batchsize]
-  auto out = linearOut()->forward(summaries);
+  auto out = linearOut()->forward(summaries + hy);
 
   return std::make_pair(out, alpha);
 }
@@ -187,6 +203,10 @@ std::pair<Variable, Variable> Seq2SeqCriterion::decoder(
     const Variable& input,
     const Variable& target) {
   int U = target.dims(0);
+
+  if (window_) { // for softPretrainWindow
+    window_->setBatchStat(input.dims(1), U, input.dims(2));
+  }
 
   std::vector<Variable> outvec;
   std::vector<Variable> alphaVec;
@@ -392,7 +412,7 @@ std::pair<Variable, Seq2SeqState> Seq2SeqCriterion::decodeStep(
       attention()->forward(hy, xEncoded, inState.alpha, windowWeight);
 
   // [nClass, 1, batchsize]
-  auto out = linearOut()->forward(outState.summary);
+  auto out = linearOut()->forward(outState.summary + hy);
   af::setMemStepSize(stepSize);
   return std::make_pair(out, outState);
 }
@@ -463,7 +483,8 @@ Seq2SeqCriterion::decodeBatchStep(
 
   /* (3) Linear forward */
   // outBatched [nclass, 1, batchsize]
-  auto outBatched = linearOut()->forward(outStateBatched);
+  yBatched = moddims(yBatched, {yBatched.dims(0), 1, yBatched.dims(1)});
+  auto outBatched = linearOut()->forward(outStateBatched + yBatched);
   outBatched = logSoftmax(outBatched, 0);
   std::vector<std::vector<float>> out(batchSize);
   for (int i = 0; i < batchSize; i++) {
