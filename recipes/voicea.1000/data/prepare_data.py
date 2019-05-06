@@ -46,14 +46,17 @@ if __name__ == "__main__":
     #gender_map = {}
 
     subpaths = {
-        args.src + "/perturbed",
-        args.src + "/clean-trn",
-        #"clean-tst",
-        #"clean-tst.stratified",
+        #args.src + "/perturbed",
+        #args.src + "/clean-trn",
+        #"norm-clean-tst",
+        #"norm-clean-tst.stratified",
+        "webex-trn"
     }
     
     transcipt_subpaths = {
-        "clean-trn",
+        "webex-trn"
+        #"norm-clean-tst",
+        #"norm-clean-tst.stratified"
         #"clean-tst",
         #"clean-tst.stratified",
     }
@@ -89,8 +92,9 @@ if __name__ == "__main__":
                     words = line.split(' ')
                     if (len(words) <= max_words):
                         #transcripts.append(tf + " " + line.strip())
-                        transcripts[id] = normalize.normalize_text(line.strip())
-
+                        normalizedLine = normalize.normalize_text(line.strip())
+                        if (len(normalizedLine) > 0):
+                            transcripts[id] = normalizedLine
         
         sys.stdout.write("Filtered to {cnt} examples...\n".
                          format(cnt=len(transcripts)))
@@ -103,17 +107,15 @@ if __name__ == "__main__":
     # for all subpaths
     all_flacs = []
     for subpath in subpaths:
+        src = os.path.join(args.src, subpath)
         sys.stdout.write("Reading {dir} ...\n".format(dir=subpath))
-        flacs = utils.findflacfiles(subpath)
+        flacs = utils.findflacfiles(src)
         sys.stdout.write("Found {cnt} flac files in {dir}!\n".format( 
                          cnt=len(flacs), dir=subpath))
         #parse id
         for flac in flacs:
             filename = os.path.splitext(basename(flac))[0]
-            if (filename.find("_") == -1):
-                id = filename
-            else:
-                id, extra = filename.split("_", 1)
+            id = filename
             
             if (id in transcripts):
                 transcript = id + ":" + flac + ":" + transcripts[id]

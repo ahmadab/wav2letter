@@ -50,7 +50,7 @@ int Dictionary::getIndex(const std::string& token) const {
     if (defaultIndex_ < 0) {
       LOG(FATAL) << "Unknown token in dictionary: '" << token << "'";
     } else {
-      LOG(INFO) << "Skipping unknown token: '" << token << "'";
+      //LOG(INFO) << "Skipping unknown token: '" << token << "'";
       return defaultIndex_;
     }
   }
