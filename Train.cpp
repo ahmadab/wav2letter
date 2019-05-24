@@ -57,6 +57,7 @@ int main(int argc, char** argv) {
       LOG(INFO) << "Reading flags from file " << FLAGS_flagsfile;
       gflags::ReadFromFlagsFile(FLAGS_flagsfile, argv[0], true);
     }
+    gflags::ParseCommandLineFlags(&argc, &argv, false);
     runPath = newRunPath(FLAGS_rundir, FLAGS_runname, FLAGS_tag);
   } else if (runStatus == kContinueMode) {
     runPath = argv[2];
@@ -82,6 +83,7 @@ int main(int argc, char** argv) {
       LOG(INFO) << "Reading flags from file " << FLAGS_flagsfile;
       gflags::ReadFromFlagsFile(FLAGS_flagsfile, argv[0], true);
     }
+    gflags::ParseCommandLineFlags(&argc, &argv, false);
     auto epoch = cfg.find(kEpoch);
     if (epoch == cfg.end()) {
       LOG(WARNING) << "Did not find epoch to start from, starting from 0.";
@@ -110,6 +112,7 @@ int main(int argc, char** argv) {
       LOG(INFO) << "Reading flags from file" << FLAGS_flagsfile;
       gflags::ReadFromFlagsFile(FLAGS_flagsfile, argv[0], true);
     }
+    gflags::ParseCommandLineFlags(&argc, &argv, false);
     runPath = newRunPath(FLAGS_rundir, FLAGS_runname, FLAGS_tag);
   } else {
     LOG(FATAL) << gflags::ProgramUsage();
@@ -159,17 +162,19 @@ int main(int argc, char** argv) {
   }
 
   /* ===================== Create Dictionary & Lexicon ===================== */
-  Dictionary dict = createTokenDict();
-  int numClasses = dict.indexSize();
-  LOG_MASTER(INFO) << "Number of classes (network) = " << numClasses;
+  auto tokenDict = createTokenDict(pathsConcat(FLAGS_tokensdir, FLAGS_tokens));
+  int numClasses = tokenDict.indexSize();
+  LOG(INFO) << "Number of classes (network): " << numClasses;
 
-  DictionaryMap dicts;
-  dicts.insert({kTargetIdx, dict});
-
+  Dictionary wordDict;
   LexiconMap lexicon;
-  if (FLAGS_listdata || FLAGS_everstoredb) {
+  if (!FLAGS_lexicon.empty()) {
     lexicon = loadWords(FLAGS_lexicon, FLAGS_maxword);
+    wordDict = createWordDict(lexicon);
+    LOG(INFO) << "Number of words: " << wordDict.indexSize();
   }
+
+  DictionaryMap dicts = {{kTargetIdx, tokenDict}, {kWordIdx, wordDict}};
 
   /* =========== Create Network & Optimizers / Reload Snapshot ============ */
   std::shared_ptr<fl::Module> network;
@@ -192,7 +197,7 @@ int main(int argc, char** argv) {
           std::make_shared<ASGLoss>(numClasses, scalemode, FLAGS_transdiag);
     } else if (FLAGS_criterion == kSeq2SeqCriterion) {
       criterion = std::make_shared<Seq2SeqCriterion>(
-          buildSeq2Seq(numClasses, dict.getIndex(kEosToken)));
+          buildSeq2Seq(numClasses, tokenDict.getIndex(kEosToken)));
     } else {
       LOG(FATAL) << "unimplemented criterion";
     }
@@ -315,7 +320,7 @@ int main(int argc, char** argv) {
 
       // save if better than ever for one valid
       for (const auto& v : validminerrs) {
-        double verr = meters.valid[v.first].edit.value()[0];
+        double verr = meters.valid[v.first].wrdEdit.value()[0];
         if (verr < validminerrs[v.first]) {
           validminerrs[v.first] = verr;
           std::string cleaned_v = cleanFilepath(v.first);
@@ -347,7 +352,7 @@ int main(int argc, char** argv) {
   auto evalOutput = [&dicts, &criterion](
                         const af::array& op,
                         const af::array& target,
-                        fl::EditDistanceMeter& mtr) {
+                        DatasetMeters& mtr) {
     auto batchsz = op.dims(2);
     for (int b = 0; b < batchsz; ++b) {
       auto tgt = target(af::span, b);
@@ -365,29 +370,14 @@ int main(int argc, char** argv) {
       }
       auto tgtDict = dicts.find(kTargetIdx)->second;
 
-      if (FLAGS_criterion == kCtcCriterion ||
-          FLAGS_criterion == kAsgCriterion) {
-        uniq(viterbipath);
-      }
-      if (FLAGS_criterion == kCtcCriterion) {
-        auto blankidx = tgtDict.getIndex(kBlankToken);
-        viterbipath.erase(
-            std::remove(viterbipath.begin(), viterbipath.end(), blankidx),
-            viterbipath.end());
-      }
+      auto ltrPred = tknPrediction2Ltr(viterbipath, tgtDict);
+      auto ltrTgt = tknTarget2Ltr(tgtraw, tgtDict);
 
-      remapLabels(viterbipath, tgtDict);
-      remapLabels(tgtraw, tgtDict);
+      auto wrdPred = tknIdx2Wrd(ltrPred);
+      auto wrdTgt = tknIdx2Wrd(ltrTgt);
 
-      // break down word pieces into letters for evaluation,
-      // assume all letters exist in the dictionary
-      if (FLAGS_usewordpiece) {
-        viterbipath = toSingleLtr(viterbipath, tgtDict);
-        tgtraw = toSingleLtr(tgtraw, tgtDict);
-      }
-
-      mtr.add(
-          viterbipath.data(), tgtraw.data(), viterbipath.size(), tgtraw.size());
+      mtr.tknEdit.add(ltrPred, ltrTgt);
+      mtr.wrdEdit.add(wrdPred, wrdTgt);
     }
   };
 
@@ -398,8 +388,8 @@ int main(int argc, char** argv) {
                   DatasetMeters& mtrs) {
     ntwrk->eval();
     crit->eval();
-    mtrs.edit.reset();
-    mtrs.wordedit.reset();
+    mtrs.tknEdit.reset();
+    mtrs.wrdEdit.reset();
     mtrs.loss.reset();
 
     for (auto& sample : *testds) {
@@ -422,14 +412,13 @@ int main(int argc, char** argv) {
           crit->forward({output, fl::Variable(sample[kTargetIdx], false)})
               .front();
       mtrs.loss.add(loss.array());
-      evalOutput(output.array(), sample[kTargetIdx], mtrs.edit);
+      evalOutput(output.array(), sample[kTargetIdx], mtrs);
     }
     */
   };
 
   double gradNorm = 1.0 / (FLAGS_batchsize * worldSize);
-  auto reducer = std::make_shared<fl::InlineReducer>(
-      /*scale=*/gradNorm);
+  auto reducer = std::make_shared<fl::CoalescingReducer>(gradNorm, true, true);
 
   auto trainEvalIds =
       randomSubset(FLAGS_seed, trainds->size(), FLAGS_pcttraineval);
@@ -456,8 +445,8 @@ int main(int argc, char** argv) {
     fl::distributeModuleGrads(crit, reducer);
 
     meters.train.loss.reset();
-    meters.train.edit.reset();
-    meters.train.wordedit.reset();
+    meters.train.tknEdit.reset();
+    meters.train.wrdEdit.reset();
 
     fl::allReduceParameters(ntwrk);
     fl::allReduceParameters(crit);
@@ -500,8 +489,8 @@ int main(int argc, char** argv) {
       }
       // reset meters for next readings
       meters.train.loss.reset();
-      meters.train.edit.reset();
-      meters.train.wordedit.reset();
+      meters.train.tknEdit.reset();
+      meters.train.wrdEdit.reset();
     };
 
     int64_t curEpoch = startEpoch;
@@ -563,7 +552,7 @@ int main(int argc, char** argv) {
         int64_t batchIdx = (sampleIdx - 1) % trainset->size();
         int64_t globalBatchIdx = trainset->getGlobalBatchIdx(batchIdx);
         if (trainEvalIds.find(globalBatchIdx) != trainEvalIds.end()) {
-          evalOutput(output.array(), sample[kTargetIdx], meters.train.edit);
+          evalOutput(output.array(), sample[kTargetIdx], meters.train);
         }
 
         // backward
