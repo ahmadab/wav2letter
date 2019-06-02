@@ -15,7 +15,7 @@
 #include <functional>
 #include <unordered_map>
 
-#include "TokenLMDecoder.h"
+#include "decoder/TokenLMDecoder.h"
 
 namespace w2l {
 
@@ -170,6 +170,7 @@ void TokenLMDecoder::decodeStep(const float* emissions, int T, int N) {
     }
 
     candidatesStore(hyp_[startFrame + t + 1], false);
+    updateLMCache(lm_, hyp_[startFrame + t + 1]);
   }
   nDecodedFrames_ += T;
 }
